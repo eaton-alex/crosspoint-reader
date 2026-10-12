@@ -26,6 +26,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "KOReaderAutoSync.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -198,6 +199,8 @@ void silentRestart() { silentRestartTo(SILENT_REBOOT_TARGET_HOME, "home"); }
 void silentRestartToReader() { silentRestartTo(SILENT_REBOOT_TARGET_READER, "reader"); }
 
 void silentRestartToSettings() { silentRestartTo(SILENT_REBOOT_TARGET_SETTINGS, "settings"); }
+
+bool deepSleepCommitted() { return deepSleepInProgress; }
 
 void silentRestartToJoinNetwork() {
   if (deepSleepInProgress) return;
@@ -627,6 +630,7 @@ void setup() {
     activityManager.goToCrashReport();
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
+    koreaderautosync::openSyncAllowed = false;  // the sync that caused this reboot already ran
     activityManager.goToReader(APP_STATE.openEpubPath);
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_JOIN_NETWORK) {
     // Rebooted on the way *into* File Transfer > Join Network for a fresh heap;
@@ -651,6 +655,7 @@ void setup() {
     APP_STATE.openEpubPath = "";
     APP_STATE.readerActivityLoadCount++;
     APP_STATE.saveToFile();
+    koreaderautosync::openSyncAllowed = false;  // waking is not opening: sleep already pushed progress
     activityManager.goToReader(path, allowFastInitialReaderRefresh);
   }
 

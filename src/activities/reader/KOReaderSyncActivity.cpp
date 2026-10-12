@@ -13,8 +13,10 @@
 
 #include "Epub/Section.h"
 #include "EpubReaderUtils.h"
+#include "KOReaderAutoSync.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
+#include "KOReaderUploadPayload.h"
 #include "MappedInputManager.h"
 #include "ProgressComparison.h"
 #include "ReaderUtils.h"
@@ -52,12 +54,14 @@ const char* matchMethodName(const DocumentMatchMethod method) {
 
 KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                            const std::string& epubPath, CrossPointPosition localPosition,
-                                           SavedProgressPosition localKoPos, std::string localChapterName)
+                                           SavedProgressPosition localKoPos, std::string localChapterName,
+                                           const Mode mode)
     : Activity("KOReaderSync", renderer, mappedInput),
       UiAppHost(renderer),
       epubPath(epubPath),
       localChapterName(std::move(localChapterName)),
       localPosition(localPosition),
+      mode(mode),
       remoteProgress{},
       remotePosition{},
       localProgress(std::move(localKoPos)) {}
@@ -100,7 +104,7 @@ void KOReaderSyncActivity::saveProgressAndReturn(int spineIndex, int page) {
 void KOReaderSyncActivity::returnToReader() { activityManager.goToReader(epubPath); }
 
 bool KOReaderSyncActivity::smartSyncEnabled() const {
-  return KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
+  return mode != Mode::MANUAL || KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
 }
 
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
@@ -117,6 +121,15 @@ void KOReaderSyncActivity::completeAlreadySynced() {
 void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
     LOG_DBG("KOSync", "WiFi connection failed, exiting");
+    if (mode != Mode::MANUAL) {
+      // Nothing was joined, so there is no WiFi session to clear with a
+      // restart. Pause auto sync and tell the reader not to retry this open.
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      wifiActivated = false;
+      koreaderautosync::noteNetworkFailure();
+      koreaderautosync::openSyncAllowed = false;
+    }
     returnToReader();
     return;
   }
@@ -305,6 +318,11 @@ void KOReaderSyncActivity::performSync() {
         saveProgressAndReturn(remotePosition.spineIndex, remotePosition.pageNumber);
         return;
       case ProgressComparison::Unknown:
+        if (mode != Mode::MANUAL) {
+          LOG_DBG("KOSync", "Auto sync comparison unknown; keeping local position");
+          returnToReader();
+          return;
+        }
         LOG_DBG("KOSync", "Smart sync comparison unknown; opening manual selection");
         break;
     }
@@ -337,54 +355,16 @@ void KOReaderSyncActivity::performUpload() {
   // Rich position for server profiles that explicitly support the CrossPoint extension.
   // The HTTP client enforces the same boundary before serializing the extension.
   if (KOREADER_STORE.supportsRichProgress()) {
-    KOReaderRichPosition pos;
-    const float pct = localProgress.percentage < 0.0f   ? 0.0f
-                      : localProgress.percentage > 1.0f ? 1.0f
-                                                        : localProgress.percentage;
-    pos.pctQ = static_cast<uint32_t>(pct * 1000000.0f + 0.5f);
-    pos.spineIndex = static_cast<uint16_t>(localPosition.spineIndex);
-    pos.pageNumber = static_cast<uint16_t>(localPosition.pageNumber);
-    pos.totalPages = static_cast<uint16_t>(localPosition.totalPages > 0 ? localPosition.totalPages : 1);
-    if (localPosition.hasParagraphIndex) {
-      pos.paragraphIndex = localPosition.paragraphIndex;
-    }
-    pos.xpath = localProgress.xpath;
-    progress.position = std::move(pos);
+    progress.position = koreaderupload::richPosition(localPosition, localProgress);
   }
 
   // Optionally include document metadata (KOReader PR #15306)
   if (KOREADER_STORE.getSendMetadata()) {
     // The Epub is released before the sync network calls and is only reloaded on the
     // remote-progress path (performSync). When uploading from NO_REMOTE_PROGRESS the
-    // Epub is still null, so reload it here and guard the title/author reads to avoid
-    // dereferencing a null Epub. Filename is derived from the path and is always safe.
+    // Epub is still null, so reload it here; the helper copes with a null Epub.
     ensureEpubLoaded();
-    KOReaderMetadata meta;
-    const auto lastSlash = epubPath.rfind('/');
-    meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
-    if (epub) {
-      meta.title = epub->getTitle();
-      meta.authors = epub->getAuthor();
-      if (KOREADER_STORE.supportsExtendedMetadata()) {
-        Epub::SyncMetadata syncMetadata;
-        if (epub->loadSyncMetadata(syncMetadata)) {
-          meta.isbn = std::move(syncMetadata.isbn);
-          meta.asin = std::move(syncMetadata.asin);
-          meta.series = std::move(syncMetadata.series);
-          meta.seriesIndex = syncMetadata.seriesIndex;
-        } else {
-          LOG_DBG("KOSync", "Could not read extended EPUB metadata; sending core metadata only");
-        }
-      }
-    } else {
-      LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
-    }
-    // Plugin sidecar fields ("<book>.meta.json", written at download time via
-    // the catalog sidecar mechanism or /api/plugin-fs) ride along so a custom
-    // sync server can route progress by a service book id.
-    // A missing sidecar (the common case) leaves extraJson empty.
-    Storage.readFileToString("KOSync", epubPath + ".meta.json", 2 * 1024, meta.extraJson);
-    progress.metadata = std::move(meta);
+    progress.metadata = koreaderupload::metadata(epub.get(), epubPath);
   }
 
   // Release the Epub before the network call so the TLS handshake has enough free heap
@@ -446,7 +426,7 @@ void KOReaderSyncActivity::onEnter() {
 
   // Launch WiFi selection subactivity
   LOG_DBG("KOSync", "Launching WifiSelectionActivity...");
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, true, mode != Mode::MANUAL),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
 
@@ -708,6 +688,10 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 }
 
 void KOReaderSyncActivity::loop() {
+  // Nobody is there to dismiss a failure during Auto Sync: show it briefly,
+  // then carry on reading.
+  if (mode != Mode::MANUAL && state == SYNC_FAILED && autoReturnAt == 0) markAutoReturn();
+
   if (state == NO_CREDENTIALS || state == SYNC_FAILED || state == UPLOAD_COMPLETE || state == SYNC_COMPLETE) {
     if (autoReturnAt != 0 && millis() >= autoReturnAt) {
       returnToReader();

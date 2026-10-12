@@ -35,6 +35,7 @@
 #include "EpubReaderFootnoteSelectActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
+#include "KOReaderAutoSync.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
@@ -560,6 +561,11 @@ void EpubReaderActivity::loop() {
   }
 
   rememberBookOnceRendered();
+
+  if (!autoSyncOpenChecked && bookRemembered) {
+    autoSyncOpenChecked = true;
+    if (launchAutoSyncOnOpen()) return;
+  }
 
   // Someone else turned the screen while this reader was stacked (the control
   // center's orientation tile). Reflow before the next render, or the page
@@ -1150,6 +1156,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       return;
     }
     case EpubReaderMenuActivity::MenuAction::DELETE_CACHE: {
+      autoSyncOnLeave = false;  // the cache is about to be wiped; nothing to map
       {
         RenderLock lock;
         if (epub && section) {
@@ -1215,7 +1222,7 @@ unsigned long EpubReaderActivity::confirmLongPressThreshold() const {
   }
 }
 
-bool EpubReaderActivity::launchKOReaderSync() {
+bool EpubReaderActivity::launchKOReaderSync(const bool autoOpen) {
   if (!KOREADER_STORE.hasCredentials()) return false;
 
   RenderLock renderLock;
@@ -1259,9 +1266,71 @@ bool EpubReaderActivity::launchKOReaderSync() {
   }
   LOG_DBG("KOSync", "Epub released (heap after: %u)", (unsigned)ESP.getFreeHeap());
 
+  // The sync screen owns the book from here; leaving must not push again.
+  autoSyncOnLeave = false;
   activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
-      renderer, mappedInput, savedEpubPath, localPos, std::move(localKoPos), std::move(localChapterName)));
+      renderer, mappedInput, savedEpubPath, localPos, std::move(localKoPos), std::move(localChapterName),
+      autoOpen ? KOReaderSyncActivity::Mode::AUTO_OPEN : KOReaderSyncActivity::Mode::MANUAL));
   return true;
+}
+
+bool EpubReaderActivity::launchAutoSyncOnOpen() {
+  // A sleep requested during the first render must not be replaced by the sync screen.
+  if (deepSleepCommitted()) return false;
+  const bool allowed = koreaderautosync::openSyncAllowed;
+  koreaderautosync::openSyncAllowed = true;
+  if (!allowed || !koreaderautosync::available()) return false;
+  return launchKOReaderSync(true);
+}
+
+void EpubReaderActivity::onExit() {
+  ReaderActivity::onExit();
+  if (autoSyncOnLeave && epub && koreaderautosync::available()) {
+    pushProgressOnLeave();
+  }
+}
+
+// Runs from onExit(), so ActivityManager already holds the RenderLock. The
+// Epub is released before the network call to leave the TLS handshake its heap,
+// exactly as launchKOReaderSync() does; the destructor copes with a null epub.
+void EpubReaderActivity::pushProgressOnLeave() {
+  // A finished book is moved to the Read folder by the destructor, which needs the Epub.
+  if (isAtEndOfBook() || pendingReadFolderMove) return;
+  // The progress mapper borrows the framebuffer and returns it blank. These
+  // sleep screens keep the page that is on screen, so a sleep would lose it.
+  if (deepSleepCommitted() &&
+      (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
+       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM ||
+       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT)) {
+    return;
+  }
+
+  const CrossPointPosition localPos = getCurrentPosition();
+  SavedProgressPosition localKoPos;
+  {
+    discardOverlayPage();
+    ImageBlock::releaseRenderCache();
+    ImageBlock::setExtractor(nullptr, nullptr);
+    section.reset();
+    if (auto* fcm = renderer.getFontCacheManager()) {
+      fcm->releaseSdFontCaches();
+    }
+    GfxRenderer::FrameBufferLoan loan(renderer);
+    localKoPos = ProgressMapper::toSavedProgress(epub, localPos);
+  }
+
+  auto pending = koreaderautosync::capture(*epub, epub->getPath(), localPos, std::move(localKoPos));
+  if (footnoteDepth > 0) saveLinkStack();
+  LOG_DBG("ERS", "Auto push: releasing epub (heap before: free=%u max_block=%u)", (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
+  CLIPPINGS.unload();
+  epub.reset();
+
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  // WiFi and TLS leave the heap fragmented, so restart as every other WiFi
+  // session does. A sleep resets the chip on wake anyway (silentRestart is a
+  // no-op then). The restart lands on Home.
+  if (koreaderautosync::push(std::move(pending))) silentRestart();
 }
 
 void EpubReaderActivity::applyInitialOrientation() {

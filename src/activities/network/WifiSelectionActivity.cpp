@@ -27,8 +27,19 @@ constexpr fui::ActionId ACTION_PROMPT = 3;
 }  // namespace
 
 WifiSelectionActivity::WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                             const bool autoConnect)
-    : Activity("WifiSelection", renderer, mappedInput), UiAppHost(renderer), allowAutoConnect(autoConnect) {}
+                                             const bool autoConnect, const bool quietAutoConnect)
+    : Activity("WifiSelection", renderer, mappedInput),
+      UiAppHost(renderer),
+      allowAutoConnect(autoConnect),
+      quietAutoConnect(quietAutoConnect) {}
+
+bool WifiSelectionActivity::abandonIfQuiet() {
+  if (!quietAutoConnect) return false;
+  LOG_DBG("WIFI", "Quiet auto-connect found no usable saved network");
+  WiFi.scanDelete();
+  onComplete(false);
+  return true;
+}
 
 void WifiSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<WifiSelectionActivity*>(user);
@@ -145,6 +156,11 @@ void WifiSelectionActivity::onEnter() {
   // Attempt to auto-connect to known networks. Try the last successful
   // network first for speed, then scan and try any visible saved networks by
   // signal strength. The user can interrupt this and show the scan result.
+  if (quietAutoConnect && (!allowAutoConnect || savedCredentialCount == 0)) {
+    abandonIfQuiet();
+    return;
+  }
+
   if (allowAutoConnect && savedCredentialCount != 0) {
     const std::string lastSsid = WIFI_STORE.getLastConnectedSsid();
     if (!lastSsid.empty()) {
@@ -208,6 +224,7 @@ void WifiSelectionActivity::processWifiScanResults() {
   }
 
   if (scanResult == WIFI_SCAN_FAILED) {
+    if (abandonIfQuiet()) return;
     networks.clear();
     realNetworkCount = 0;
     appendHiddenNetworkEntry();
@@ -265,6 +282,8 @@ void WifiSelectionActivity::processWifiScanResults() {
   if (autoConnecting && !manualNetworkListRequested && tryNextSavedNetworkFromScan()) {
     return;
   }
+
+  if (autoConnecting && !manualNetworkListRequested && abandonIfQuiet()) return;
 
   autoConnecting = false;
   state = WifiSelectionState::NETWORK_LIST;
@@ -431,6 +450,7 @@ void WifiSelectionActivity::handleAutoConnectFailure() {
     if (tryNextSavedNetworkFromScan()) {
       return;
     }
+    if (abandonIfQuiet()) return;
     autoConnecting = false;
     state = WifiSelectionState::NETWORK_LIST;
     selectedNetworkIndex = 0;

@@ -39,6 +39,7 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   DocumentMatchMethod matchMethod = DocumentMatchMethod::FILENAME;  // Default to filename for compatibility
   bool sendMetadata = true;                                         // Send document metadata with progress sync
   bool syncClippings = false;                                       // Opt-in crosspoint-sync extension
+  bool autoSync = false;                                            // Sync on book open, close and sleep
   KOReaderSyncBehavior syncBehavior = KOReaderSyncBehavior::SMART;
   KOReaderServerType serverType = KOReaderServerType::CROSSPOINT;
 
@@ -90,6 +91,9 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
 
   void setSyncClippings(bool enabled) { syncClippings = enabled; }
   bool getSyncClippings() const { return syncClippings; }
+
+  void setAutoSync(bool enabled) { autoSync = enabled; }
+  bool getAutoSync() const { return autoSync; }
 
   // Sync behavior
   void setSyncBehavior(KOReaderSyncBehavior behavior);

@@ -27,6 +27,7 @@ void KOReaderCredentialStore::toJson(JsonDocument& doc) const {
   doc["matchMethod"] = static_cast<uint8_t>(getMatchMethod());
   doc["sendMetadata"] = getSendMetadata();
   doc["syncClippings"] = getSyncClippings();
+  doc["autoSync"] = getAutoSync();
   doc["syncBehavior"] = static_cast<uint8_t>(getSyncBehavior());
 }
 
@@ -79,6 +80,7 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
   }
   setSendMetadata(doc["sendMetadata"] | false);
   setSyncClippings(doc["syncClippings"] | false);
+  setAutoSync(doc["autoSync"] | false);
 
   const JsonVariantConst behaviorValue = doc["syncBehavior"];
   const bool missingBehavior = behaviorValue.isNull();
