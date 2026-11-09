@@ -1386,15 +1386,21 @@ bool EpubReaderActivity::launchAutoSyncOnOpen() {
   if (deepSleepCommitted()) return false;
   const bool allowed = koreaderautosync::openSyncAllowed;
   koreaderautosync::openSyncAllowed = true;
+  if (allowed) {
+    RenderLock lock(*this);
+    koreaderautosync::loadNetworkList();
+  }
   if (!allowed || !koreaderautosync::available(koreaderautosync::Channel::Open)) return false;
   return launchKOReaderSync(true);
 }
 
 void EpubReaderActivity::onExit() {
   ReaderActivity::onExit();
+  koreaderautosync::loadNetworkList();  // RenderLock is held by ActivityManager
+  const bool canPush = koreaderautosync::available(koreaderautosync::Channel::Leave);
   LOG_INF("ERS", "Auto push gate: leave=%d epub=%d available=%d sleeping=%d", autoSyncOnLeave, epub != nullptr,
-          koreaderautosync::available(koreaderautosync::Channel::Leave), deepSleepCommitted());
-  if (autoSyncOnLeave && epub && koreaderautosync::available(koreaderautosync::Channel::Leave)) {
+          canPush, deepSleepCommitted());
+  if (autoSyncOnLeave && epub && canPush) {
     pushProgressOnLeave();
   }
 }

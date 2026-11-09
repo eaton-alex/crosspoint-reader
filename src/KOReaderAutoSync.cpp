@@ -71,6 +71,12 @@ void logHeap(const char* where) {
 }
 }  // namespace
 
+void loadNetworkList() {
+  // No SD read for people who do not use Auto Sync.
+  if (!KOREADER_STORE.getAutoSync() || !KOREADER_STORE.hasCredentials()) return;
+  if (WIFI_STORE.getCredentialCount() == 0) WIFI_STORE.loadFromFile();
+}
+
 bool available(const Channel channel) {
   const Pause& pause = pauseFor(channel);
   if (pause.active && static_cast<long>(millis() - pause.until) < 0) return false;

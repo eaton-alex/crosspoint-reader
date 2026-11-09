@@ -32,6 +32,11 @@ inline bool openSyncAllowed = true;
 // join on open does not silence the upload when the book is closed.
 enum class Channel : uint8_t { Open, Leave };
 
+// The saved-network list is read from the SD card only when a WiFi screen opens,
+// so it is empty after boot. Call before available(); the caller must hold the
+// render lock (it guards SD access).
+void loadNetworkList();
+
 // Auto Sync is on, sync credentials and a saved WiFi network exist, the battery
 // can afford a WiFi join, and this channel did not just fail to reach a network.
 bool available(Channel channel);
