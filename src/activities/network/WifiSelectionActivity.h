@@ -85,6 +85,11 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
   // Whether to attempt auto-connect on entry
   const bool allowAutoConnect;
 
+  // Background use (Auto Sync): finish as cancelled instead of showing the
+  // network list when no saved network can be joined.
+  const bool quietAutoConnect;
+  bool abandonIfQuiet();
+
   // Whether we are attempting to auto-connect or auto-scan saved networks.
   bool autoConnecting = false;
 
@@ -141,7 +146,8 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
   void onComplete(bool connected);
 
  public:
-  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = true);
+  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = true,
+                                 bool quietAutoConnect = false);
   void onEnter() override;
   void onExit() override;
   void loop() override;

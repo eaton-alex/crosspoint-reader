@@ -130,7 +130,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& documentHash,
-                                                          KOReaderProgress& outProgress) {
+                                                          KOReaderProgress& outProgress, const uint32_t timeoutMs) {
   lastHttpCode = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
@@ -144,6 +144,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
 
   freeink::SecureHttpClient http;
   http.setInsecure();
+  if (timeoutMs != 0) http.setTimeout(timeoutMs);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -215,7 +216,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   return SERVER_ERROR;
 }
 
-KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress) {
+KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress,
+                                                             const uint32_t timeoutMs) {
   lastHttpCode = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
@@ -278,6 +280,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 
   freeink::SecureHttpClient http;
   http.setInsecure();
+  if (timeoutMs != 0) http.setTimeout(timeoutMs);
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;

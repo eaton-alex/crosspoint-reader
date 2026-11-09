@@ -22,9 +22,15 @@
  */
 class KOReaderSyncActivity final : public Activity, private UiAppHost {
  public:
+  // AUTO_OPEN is the Auto Sync run when a book opens: it always resolves like
+  // Smart Sync, never prompts, skips the network list when no saved network
+  // works, and returns to the book by itself on every outcome.
+  enum class Mode : uint8_t { MANUAL, AUTO_OPEN };
+
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 CrossPointPosition localPosition, SavedProgressPosition localKoPos,
-                                std::string localChapterName, const bool pluginEventsOnly = false);
+                                std::string localChapterName, const bool pluginEventsOnly = false,
+                                Mode mode = Mode::MANUAL);
 
   void onEnter() override;
   void onExit() override;
@@ -51,6 +57,7 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   std::string localChapterName;
   CrossPointPosition localPosition;
 
+  const Mode mode;
   State state = WIFI_SELECTION;
   std::string statusMessage;
   std::string documentHash;

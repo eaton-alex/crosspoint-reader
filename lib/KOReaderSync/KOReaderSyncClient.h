@@ -102,16 +102,18 @@ class KOReaderSyncClient {
    * Get reading progress for a document.
    * @param documentHash The document hash (from KOReaderDocumentId)
    * @param outProgress Output: the progress data
+   * @param timeoutMs Per-stage network timeout in milliseconds; 0 keeps the HTTP client default
    * @return OK on success, NOT_FOUND if no progress exists, error code on failure
    */
-  static Error getProgress(const std::string& documentHash, KOReaderProgress& outProgress);
+  static Error getProgress(const std::string& documentHash, KOReaderProgress& outProgress, uint32_t timeoutMs = 0);
 
   /**
    * Update reading progress for a document.
    * @param progress The progress data to upload
+   * @param timeoutMs Per-stage network timeout in milliseconds; 0 keeps the HTTP client default
    * @return OK on success, error code on failure
    */
-  static Error updateProgress(const KOReaderProgress& progress);
+  static Error updateProgress(const KOReaderProgress& progress, uint32_t timeoutMs = 0);
 
   /**
    * Get human-readable error message.

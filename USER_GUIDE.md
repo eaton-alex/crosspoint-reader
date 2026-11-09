@@ -555,6 +555,11 @@ Once any of the options above is set up, press **Confirm** while reading to open
 - With **Sync Behavior** set to **Ask every time**, choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress.
 - With **Sync Behavior** set to **Smart sync**, CrossPoint auto-resolves simple cases: upload when no remote progress exists, confirm and leave both unchanged when local and remote progress are already synchronized, upload when local progress is further ahead, or apply remote when remote progress is further ahead.
 
+**Auto Sync** (off by default; turn it on under **Settings -> Connectivity -> CrossPoint Sync -> Auto Sync**) syncs without any menu use. It needs sync credentials and a saved Wi-Fi network, and does nothing below 20% battery. If a network cannot be joined, Auto Sync pauses that kind of sync (opening, or leaving) for five minutes, cleared by any restart, so being away from home does not slow every book.
+
+- **Opening a book** (from Home, Library or the file list; not when the device wakes from sleep): after the first page appears, CrossPoint runs a Smart sync whatever **Sync Behavior** is set to, and never asks questions. If the server is further ahead you land on the remote position; if you are further ahead it uploads. It tries your saved networks in the usual order and carries on reading by itself if none works, after a brief message if the server cannot be reached. If it connected to Wi-Fi, the device restarts and reopens the book. A book you have not started reading is not sent to the server.
+- **Leaving a book or going to sleep:** CrossPoint uploads your position in the background, only when it is further ahead than the server's copy. This uses the most recently connected network and takes a few seconds, longer if the server is slow, while a loading message shows. If it connects to Wi-Fi, the device then restarts to the home screen, as after any Wi-Fi session (not when going to sleep). Nothing is uploaded for finished books or books you have not started reading. When going to sleep, the upload is skipped if the Sleep Screen is **Quick resume**, **Transparent** or **Cover + Transparent**, or if Quick Resume after timeout is on, because those keep the page on screen.
+
 ### 3.7 Sleep Screen
 
 The **Sleep Screen** setting controls what is displayed when the device goes to sleep:
